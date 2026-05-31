@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>詰将棋 — 自動生成（難易度3段階）</title>
+<style>
+  :root{
+    --board:#f0d9a8; --line:#7a5c2e; --ink:#1a1208; --gote:#7a2e1a;
+    --hi:#ffe27a; --good:#3aa655; --bad:#d04030; --panel:#fffdf6;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+       background:#2b2620;color:#eee;display:flex;flex-direction:column;align-items:center;
+       padding:16px;min-height:100vh;}
+  h1{font-size:20px;margin:4px 0 2px;color:#f3e6c8;letter-spacing:2px;}
+  .sub{font-size:12px;color:#b8a98a;margin-bottom:10px;}
+  .wrap{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
+  .boardcol{display:flex;flex-direction:column;align-items:center;}
+  table.board{border-collapse:collapse;background:var(--board);box-shadow:0 6px 20px rgba(0,0,0,.5);}
+  table.board td{width:46px;height:50px;border:1px solid var(--line);text-align:center;
+       vertical-align:middle;position:relative;cursor:pointer;padding:0;user-select:none;}
+  .pc{font-size:24px;font-weight:700;color:var(--ink);line-height:1;display:inline-block;}
+  .pc.g{color:var(--gote);transform:rotate(180deg);}
+  .pc.promo{color:#b23;}
+  .pc.g.promo{color:#b23;}
+  td.sel{background:var(--hi)!important;}
+  td.dest::after{content:"";position:absolute;left:50%;top:50%;width:14px;height:14px;
+       background:rgba(40,140,60,.55);border-radius:50%;transform:translate(-50%,-50%);}
+  td.destcap{box-shadow:inset 0 0 0 3px rgba(200,60,40,.7);}
+  td.lastmv{background:#ffeec0;}
+  .coordtop,.coordside{display:flex;}
+  .coordtop div{width:46px;text-align:center;font-size:11px;color:#cbb98e;}
+  .coordtop{margin-left:18px;}
+  .coordside{flex-direction:column;}
+  .coordside div{height:50px;line-height:50px;width:18px;text-align:center;font-size:11px;color:#cbb98e;}
+  .brow{display:flex;align-items:center;}
+  .hand{background:var(--panel);color:#222;border-radius:8px;padding:8px 10px;min-width:150px;}
+  .hand h3{margin:0 0 6px;font-size:13px;color:#5a4a2a;}
+  .handpieces{display:flex;flex-wrap:wrap;gap:6px;min-height:30px;}
+  .hp{background:#f3e6c8;border:1px solid #c9b482;border-radius:6px;padding:3px 7px;font-size:17px;
+       font-weight:700;color:#1a1208;cursor:pointer;display:flex;align-items:center;gap:2px;}
+  .hp .cnt{font-size:11px;color:#7a5c2e;}
+  .hp.sel{background:var(--hi);border-color:#caa83a;}
+  .hp.disabled{opacity:.5;cursor:default;}
+  .side{display:flex;flex-direction:column;gap:10px;min-width:200px;}
+  .status{background:var(--panel);color:#222;border-radius:8px;padding:10px 12px;font-size:14px;min-height:54px;}
+  .status .move{font-weight:700;}
+  .status.good{outline:2px solid var(--good);}
+  .status.bad{outline:2px solid var(--bad);}
+  .btns{display:flex;flex-wrap:wrap;gap:8px;}
+  button{font-family:inherit;font-size:13px;padding:8px 12px;border:none;border-radius:7px;
+       background:#caa83a;color:#1a1208;font-weight:700;cursor:pointer;}
+  button.sec{background:#5a4a2a;color:#f3e6c8;}
+  button:disabled{opacity:.5;cursor:default;}
+  .meta{font-size:12px;color:#b8a98a;}
+  .log{background:#1f1b15;border-radius:8px;padding:8px 10px;font-size:13px;max-height:160px;overflow:auto;color:#d8c9a4;}
+  .log div{padding:1px 0;}
+  .promodlg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:10;}
+  .promodlg .box{background:#fffdf6;color:#222;padding:18px 22px;border-radius:12px;text-align:center;}
+  .promodlg .box p{margin:0 0 12px;font-weight:700;}
+  .gotehand-note{font-size:11px;color:#7a5c2e;}
+  .difficulty{display:flex;gap:6px;}
+  .diffbtn{flex:1;padding:7px 4px;border:none;border-radius:7px;background:#3a332a;color:#d8c9a4;
+       font-weight:700;cursor:pointer;line-height:1.25;text-align:center;}
+  .diffbtn .big{font-size:13px;display:block;}
+  .diffbtn .small{font-size:10px;opacity:.8;}
+  .diffbtn.active{background:#caa83a;color:#1a1208;}
+  .diffbtn.active .small{opacity:.85;}
+</style>
+</head>
+<body>
+  <h1>詰　将　棋</h1>
+  <div class="sub">自動生成・難易度3段階（攻方＝下／先手番）</div>
+
+  <div class="wrap">
+    <div class="side">
+      <div class="difficulty" id="difficulty"></div>
+      <div class="hand" id="goteHand">
+        <h3>受け方（後手）持駒</h3>
+        <div class="handpieces" id="goteHandPieces"></div>
+      </div>
+      <div class="status" id="status">問題を生成中…</div>
+      <div class="btns">
+        <button id="btnNext" class="sec">次の問題 ▶</button>
+        <button id="btnHint" class="sec">ヒント</button>
+        <button id="btnAnswer" class="sec">答えを見る</button>
+        <button id="btnReset" class="sec">やり直し</button>
+      </div>
+      <div class="meta" id="meta"></div>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div class="boardcol">
+      <div class="coordtop" id="coordtop"></div>
+      <div class="brow">
+        <table class="board"><tbody id="boardBody"></tbody></table>
+        <div class="coordside" id="coordside"></div>
+      </div>
+      <div class="hand" id="senteHand" style="margin-top:10px;">
+        <h3>攻め方（先手）持駒　— クリックして打つ</h3>
+        <div class="handpieces" id="senteHandPieces"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="promodlg" id="promodlg">
+    <div class="box">
+      <p>成りますか？</p>
+      <button id="promoYes">成る</button>
+      <button id="promoNo" class="sec">不成</button>
+    </div>
+  </div>
+
+<script>
+/* ====================== 詰将棋エンジン (factory) ====================== */
+function makeEngine(){
+  'use strict';
+  const TYPES = ['P','L','N','S','G','B','R'];
+  const FULL_COUNT = { P:18, L:4, N:4, S:4, G:4, B:2, R:2 };
+  function inB(r,c){ return r>=0&&r<9&&c>=0&&c<9; }
+  function cloneState(s){
+    const board = s.board.map(row=>row.map(p=>p?{t:p.t,pr:p.pr,o:p.o}:null));
+    return { board, hands:[Object.assign({},s.hands[0]),Object.assign({},s.hands[1])] };
+  }
+  function patterns(piece){
+    const sign = piece.o===0?1:-1;
+    let steps=[],slides=[]; const pr=piece.pr;
+    const eff=(pr&&(piece.t==='P'||piece.t==='L'||piece.t==='N'||piece.t==='S'))?'G':piece.t;
+    switch(eff){
+      case 'P': steps=[[-1,0]]; break;
+      case 'L': slides=[[-1,0]]; break;
+      case 'N': steps=[[-2,-1],[-2,1]]; break;
+      case 'S': steps=[[-1,-1],[-1,0],[-1,1],[1,-1],[1,1]]; break;
+      case 'G': steps=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,0]]; break;
+      case 'K': steps=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]; break;
+      case 'B': slides=[[-1,-1],[-1,1],[1,-1],[1,1]]; if(pr) steps=[[-1,0],[1,0],[0,-1],[0,1]]; break;
+      case 'R': slides=[[-1,0],[1,0],[0,-1],[0,1]]; if(pr) steps=[[-1,-1],[-1,1],[1,-1],[1,1]]; break;
+    }
+    steps=steps.map(([dr,dc])=>[dr*sign,dc]);
+    slides=slides.map(([dr,dc])=>[dr*sign,dc]);
+    return {steps,slides};
+  }
+  function pieceTargets(board,r,c){
+    const p=board[r][c]; const {steps,slides}=patterns(p); const out=[];
+    for(const [dr,dc] of steps){ const nr=r+dr,nc=c+dc; if(!inB(nr,nc))continue;
+      const q=board[nr][nc]; if(q&&q.o===p.o)continue; out.push([nr,nc]); }
+    for(const [dr,dc] of slides){ let nr=r+dr,nc=c+dc;
+      while(inB(nr,nc)){ const q=board[nr][nc]; if(q&&q.o===p.o)break; out.push([nr,nc]); if(q)break; nr+=dr;nc+=dc; } }
+    return out;
+  }
+  function findKing(board,o){
+    for(let r=0;r<9;r++)for(let c=0;c<9;c++){ const p=board[r][c]; if(p&&p.t==='K'&&p.o===o)return[r,c]; }
+    return null;
+  }
+  function attacked(board,kr,kc,attacker){
+    for(let r=0;r<9;r++)for(let c=0;c<9;c++){ const p=board[r][c]; if(!p||p.o!==attacker)continue;
+      const ts=pieceTargets(board,r,c); for(const [tr,tc] of ts) if(tr===kr&&tc===kc)return true; }
+    return false;
+  }
+  function inCheck(board,o){ const k=findKing(board,o); if(!k)return false; return attacked(board,k[0],k[1],1-o); }
+  function lastRank(o,r){ return o===0?r===0:r===8; }
+  function inPromoZone(o,r){ return o===0?r<=2:r>=6; }
+  function canPromote(piece){ return !piece.pr && ['P','L','N','S','B','R'].includes(piece.t); }
+  function mustPromote(piece,tr){ const o=piece.o; if(piece.pr)return false;
+    if(piece.t==='P'||piece.t==='L')return lastRank(o,tr);
+    if(piece.t==='N')return o===0?tr<=1:tr>=7; return false; }
+  function pseudoMoves(s,o){
+    const board=s.board,hand=s.hands[o]; const moves=[];
+    for(let r=0;r<9;r++)for(let c=0;c<9;c++){ const p=board[r][c]; if(!p||p.o!==o)continue;
+      const ts=pieceTargets(board,r,c);
+      for(const [tr,tc] of ts){
+        const cp=canPromote(p)&&(inPromoZone(o,r)||inPromoZone(o,tr));
+        if(mustPromote(p,tr)){ moves.push({from:[r,c],to:[tr,tc],promote:true}); }
+        else { moves.push({from:[r,c],to:[tr,tc],promote:false}); if(cp) moves.push({from:[r,c],to:[tr,tc],promote:true}); }
+      } }
+    for(const t of TYPES){ if(!hand[t])continue;
+      for(let c=0;c<9;c++){
+        let nifu=false;
+        if(t==='P'){ for(let rr=0;rr<9;rr++){ const q=board[rr][c]; if(q&&q.o===o&&q.t==='P'&&!q.pr){nifu=true;break;} } }
+        if(nifu)continue;
+        for(let r=0;r<9;r++){ if(board[r][c])continue;
+          if((t==='P'||t==='L')&&lastRank(o,r))continue;
+          if(t==='N'&&(o===0?r<=1:r>=7))continue;
+          moves.push({drop:t,to:[r,c]}); } } }
+    return moves;
+  }
+  function applyMove(s,m,o){
+    const ns=cloneState(s); const [tr,tc]=m.to;
+    if(m.drop){ ns.hands[o][m.drop]--; ns.board[tr][tc]={t:m.drop,pr:false,o}; }
+    else{ const [fr,fc]=m.from; const p=ns.board[fr][fc]; const cap=ns.board[tr][tc];
+      if(cap) ns.hands[o][cap.t]=(ns.hands[o][cap.t]||0)+1;
+      ns.board[fr][fc]=null; ns.board[tr][tc]={t:p.t,pr:m.promote?true:p.pr,o}; }
+    return ns;
+  }
+  function legalMoves(s,o){ const out=[]; for(const m of pseudoMoves(s,o)){ const ns=applyMove(s,m,o); if(!inCheck(ns.board,o))out.push(m); } return out; }
+  function isMated(s,o){ if(!inCheck(s.board,o))return false; return legalMoves(s,o).length===0; }
+  function attackerWins(s,att,plies){
+    const def=1-att; const moves=legalMoves(s,att);
+    for(const m of moves){ const ns=applyMove(s,m,att); if(!inCheck(ns.board,def))continue;
+      const dm=legalMoves(ns,def);
+      if(dm.length===0){ if(m.drop==='P')continue; return true; }
+      if(plies<=1)continue;
+      let all=true; for(const d of dm){ const ds=applyMove(ns,d,def); if(!attackerWins(ds,att,plies-1)){all=false;break;} }
+      if(all)return true; }
+    return false;
+  }
+  function isWinningMove(s,m,att,plies){
+    const def=1-att; const ns=applyMove(s,m,att); if(!inCheck(ns.board,def))return false;
+    const dm=legalMoves(ns,def);
+    if(dm.length===0){ if(m.drop==='P')return false; return true; }
+    if(plies<=1)return false;
+    for(const d of dm){ const ds=applyMove(ns,d,def); if(!attackerWins(ds,att,plies-1))return false; }
+    return true;
+  }
+  function isMateInExactly(s,att,n){
+    const plies=(n+1)/2; if(inCheck(s.board,1-att))return false;
+    if(!attackerWins(s,att,plies))return false;
+    if(plies>1&&attackerWins(s,att,plies-1))return false; return true;
+  }
+  function chooseDefense(s,ns,att,plies){
+    // ns = 攻方着手後の局面。受け方の手を選ぶ(自然な最善っぽい手)
+    const def=1-att; const dm=legalMoves(ns,def);
+    // 玉移動 > 取る手 > その他 の順で、かつ詰みが先に延びる手を優先
+    let best=null,bestScore=-1;
+    for(const d of dm){
+      let sc=0;
+      if(d.from){ const p=ns.board[d.from[0]][d.from[1]]; if(p.t==='K')sc+=100; if(ns.board[d.to[0]][d.to[1]])sc+=30; }
+      else sc+=5;
+      if(best===null||sc>bestScore){best=d;bestScore=sc;}
+    }
+    return best;
+  }
+  function principalVariation(s,att,plies){
+    const line=[]; let cur=cloneState(s); let p=plies;
+    while(p>0){
+      // 勝てる攻方の手を1つ
+      let mv=null;
+      for(const m of legalMoves(cur,att)){ if(isWinningMove(cur,m,att,p)){mv=m;break;} }
+      if(!mv)break;
+      const ns=applyMove(cur,mv,att); line.push({side:att,move:mv,state:ns});
+      const def=1-att; const dm=legalMoves(ns,def);
+      if(dm.length===0)break;
+      const d=chooseDefense(cur,ns,att,p); const ds=applyMove(ns,d,def);
+      line.push({side:def,move:d,state:ds}); cur=ds; p--;
+    }
+    return line;
+  }
+  function emptyBoard(){ return Array.from({length:9},()=>Array(9).fill(null)); }
+  function emptyHands(){ return [{P:0,L:0,N:0,S:0,G:0,B:0,R:0},{P:0,L:0,N:0,S:0,G:0,B:0,R:0}]; }
+  function fillDefenderHand(s){
+    const used={P:0,L:0,N:0,S:0,G:0,B:0,R:0};
+    for(let r=0;r<9;r++)for(let c=0;c<9;c++){ const p=s.board[r][c]; if(p&&p.t!=='K')used[p.t]++; }
+    for(const t of TYPES) used[t]+=s.hands[0][t]+s.hands[1][t];
+    for(const t of TYPES){ const rem=FULL_COUNT[t]-used[t]; s.hands[1][t]+=Math.max(0,rem); }
+    return s;
+  }
+  return { TYPES,FULL_COUNT,inB,cloneState,patterns,pieceTargets,findKing,attacked,inCheck,
+    pseudoMoves,applyMove,legalMoves,isMated,attackerWins,isWinningMove,isMateInExactly,
+    chooseDefense,principalVariation,emptyBoard,emptyHands,fillDefenderHand,lastRank,inPromoZone };
+}
+
+/* ====================== 問題生成 ======================
+   opts: {n:手数, ghMax:受け方持駒の最大枚数, nAtkMin, nAtkMax, maxAttempts}
+   受け方の持駒は「残り全部」ではなく、残り駒からランダムに最大 ghMax 枚を明示的に与える
+   （長手数では分岐が爆発して生成が現実的でなくなるため）。 */
+function genProblem(E, opts){
+  opts = opts || {};
+  const n = opts.n || 3;
+  const ghMax = (opts.ghMax==null) ? 2 : opts.ghMax;
+  const nAtkMin = opts.nAtkMin || 2;
+  const nAtkMax = opts.nAtkMax || 4;
+  const maxAttempts = opts.maxAttempts || (n>=7 ? 600000 : n>=5 ? 200000 : 60000);
+  const allTypes=['P','L','N','S','G','B','R'];
+  const FULL={P:18,L:4,N:4,S:4,G:4,B:2,R:2};
+  const ri=m=>Math.floor(Math.random()*m);
+  function P(t,pr,o){return{t,pr,o};}
+  for(let attempt=0;attempt<maxAttempts;attempt++){
+    const s={board:E.emptyBoard(),hands:E.emptyHands()};
+    const kr=ri(2);              // 0..1
+    const kc=ri(9);
+    s.board[kr][kc]=P('K',false,1);
+    const nAtk=nAtkMin+ri(nAtkMax-nAtkMin+1);
+    let placed=0,guard=0;
+    while(placed<nAtk&&guard++<80){
+      const r=Math.max(0,Math.min(8,kr+ri(5)-2));
+      const c=Math.max(0,Math.min(8,kc+ri(5)-2));
+      if(s.board[r][c])continue;
+      const t=allTypes[ri(allTypes.length)];
+      if((t==='P'||t==='L')&&r===0)continue;
+      if(t==='N'&&r<=1)continue;
+      let pr=false;
+      if(t==='B'||t==='R')pr=Math.random()<0.5;
+      else if(['P','L','N','S'].includes(t))pr=Math.random()<0.3;
+      s.board[r][c]=P(t,pr,0);
+      placed++;
+    }
+    const nHand=1+ri(3);
+    for(let i=0;i<nHand;i++){ s.hands[0][allTypes[ri(allTypes.length)]]++; }
+    // 受け方の持駒：残り駒からランダムに最大 ghMax 枚
+    const used={P:0,L:0,N:0,S:0,G:0,B:0,R:0};
+    for(let r=0;r<9;r++)for(let c=0;c<9;c++){const p=s.board[r][c];if(p&&p.t!=='K')used[p.t]++;}
+    for(const t of allTypes)used[t]+=s.hands[0][t];
+    const remaining=[];
+    for(const t of allTypes){let rem=FULL[t]-used[t];while(rem-->0)remaining.push(t);}
+    const give=ri(ghMax+1);
+    for(let i=0;i<give&&remaining.length;i++){const idx=ri(remaining.length);s.hands[1][remaining[idx]]++;remaining.splice(idx,1);}
+    if(E.inCheck(s.board,1))continue;
+    if(E.isMateInExactly(s,0,n)) return {board:s.board,hands:s.hands,n:n};
+  }
+  return null;
+}
+
+/* ====================== Web Worker で先行生成 ====================== */
+let worker = null;
+let useWorker = false;
+try {
+  const workerSrc =
+    'const makeEngine='+makeEngine.toString()+';'+
+    'const genProblem='+genProblem.toString()+';'+
+    'const E=makeEngine();'+
+    'self.onmessage=function(e){var d=e.data||{};var p=genProblem(E,d.opts||{});self.postMessage({prob:p,token:d.token});};';
+  worker = new Worker(URL.createObjectURL(new Blob([workerSrc],{type:'application/javascript'})));
+  worker.onerror = ()=>{ useWorker=false; worker=null; refillQueue(); };
+  useWorker = true;
+} catch(err){ useWorker=false; }
+
+/* ====================== UI ====================== */
+const E = makeEngine();
+const NAME = {P:'歩',L:'香',N:'桂',S:'銀',G:'金',B:'角',R:'飛',K:'玉'};
+const PNAME = {P:'と',L:'成香',N:'成桂',S:'成銀',B:'馬',R:'龍'};
+const KANJI = ['一','二','三','四','五','六','七','八','九'];
+const HAND_ORDER = ['R','B','G','S','N','L','P'];
+
+// 難易度プリセット（手数で難しさを変える）
+// 手数で難易度を変える。長手数ほど生成が重いので攻め方の駒数などを調整。
+const DIFFS = [
+  {key:'easy',   label:'やさしい',   n:3, ghMax:2, nAtkMin:2, nAtkMax:4},
+  {key:'normal', label:'ふつう',     n:5, ghMax:1, nAtkMin:2, nAtkMax:4},
+  {key:'hard',   label:'むずかしい', n:7, ghMax:0, nAtkMin:3, nAtkMax:5},
+];
+let diffIdx = 0;
+let genToken = 0;           // 難易度切替ごとに増やす。古い生成結果を無視するため
+
+const queue = [];           // 現在の難易度の先行生成キュー
+let pending = 0;            // 生成依頼中の数
+const QUEUE_TARGET = 3;
+
+let state=null;             // 現局面 {board,hands}
+let initial=null;          // 問題の初期局面(やり直し用)
+let curN=3;                // 現在の問題の手数
+let pliesLeft=2;           // 攻方残り手数
+let solved=false;
+let sel=null;              // {kind:'board',r,c} | {kind:'drop',t}
+let lastMove=null;         // [r,c] ハイライト用
+let moveLog=[];
+
+if(worker){
+  worker.onmessage = e=>{
+    const data=e.data||{};
+    if(data.token!==genToken) return;     // 古い難易度の結果は破棄
+    pending=Math.max(0,pending-1);
+    if(data.prob){ queue.push(data.prob); }
+    refillQueue();
+    if(!state && queue.length){ loadNext(); }
+  };
+}
+function refillQueue(){
+  const cfg = DIFFS[diffIdx];
+  if(useWorker && worker){
+    while(queue.length+pending<QUEUE_TARGET){ pending++; worker.postMessage({opts:cfg, token:genToken}); }
+  } else {
+    // メインスレッドで生成(Worker不可の環境向けフォールバック)
+    while(queue.length+pending<QUEUE_TARGET){
+      pending++;
+      const myToken=genToken;
+      setTimeout(()=>{
+        if(myToken!==genToken) return;    // 切替済みなら破棄
+        const p=genProblem(E,cfg);
+        if(myToken!==genToken) return;
+        pending=Math.max(0,pending-1);
+        if(p) queue.push(p);
+        if(!state && queue.length) loadNext(); else refillQueue();
+      },0);
+    }
+  }
+}
+
+function buildDiffButtons(){
+  const el=document.getElementById('difficulty'); el.innerHTML='';
+  DIFFS.forEach((d,i)=>{
+    const b=document.createElement('button');
+    b.className='diffbtn'+(i===diffIdx?' active':'');
+    b.innerHTML='<span class="big">'+d.label+'</span><span class="small">'+d.n+'手詰め</span>';
+    b.onclick=()=>setDifficulty(i);
+    el.appendChild(b);
+  });
+}
+function setDifficulty(i){
+  diffIdx=i; genToken++; queue.length=0; pending=0;
+  state=null; initial=null; solved=false; sel=null; lastMove=null; clearLog();
+  buildDiffButtons(); render();
+  const d=DIFFS[i];
+  setStatus('「'+d.label+'（'+d.n+'手詰め）」の問題を生成中…'+(d.n>=5?'<br><span class="gotehand-note">長手数は生成に少し時間がかかります。</span>':''),'');
+  document.getElementById('meta').textContent='';
+  refillQueue();
+}
+
+function fileOf(c){ return 9-c; }
+function sqStr(r,c){ return fileOf(c)+KANJI[r]; }
+function pieceName(p){ return p.pr?(PNAME[p.t]||NAME[p.t]):NAME[p.t]; }
+function moveStr(m,o){
+  const mk=o===0?'▲':'△';
+  const dst=sqStr(m.to[0],m.to[1]);
+  if(m.drop) return mk+dst+NAME[m.drop]+'打';
+  const p=state? null:null;
+  let nm = m._name||'';
+  return mk+dst+nm+(m.promote?'成':'');
+}
+
+function setStatus(text,cls){
+  const el=document.getElementById('status');
+  el.className='status'+(cls?' '+cls:'');
+  el.innerHTML=text;
+}
+function addLog(text){ moveLog.push(text); const el=document.getElementById('log');
+  el.innerHTML=moveLog.map(m=>'<div>'+m+'</div>').join(''); el.scrollTop=el.scrollHeight; }
+function clearLog(){ moveLog=[]; document.getElementById('log').innerHTML=''; }
+
+function buildCoords(){
+  const top=document.getElementById('coordtop'); top.innerHTML='';
+  for(let c=0;c<9;c++){ const d=document.createElement('div'); d.textContent=fileOf(c); top.appendChild(d); }
+  const side=document.getElementById('coordside'); side.innerHTML='';
+  for(let r=0;r<9;r++){ const d=document.createElement('div'); d.textContent=KANJI[r]; side.appendChild(d); }
+}
+
+function legalDestsFor(selObj){
+  // 現在の手番=攻方(0)。選択駒の合法手のみ
+  const dests=[];
+  if(!state||solved) return dests;
+  const moves=E.legalMoves(state,0);
+  for(const m of moves){
+    if(selObj.kind==='board'){ if(m.from&&m.from[0]===selObj.r&&m.from[1]===selObj.c) dests.push(m); }
+    else if(selObj.kind==='drop'){ if(m.drop===selObj.t) dests.push(m); }
+  }
+  return dests;
+}
+
+function render(){
+  const board = state ? state.board : E.emptyBoard();
+  const tb=document.getElementById('boardBody'); tb.innerHTML='';
+  const dests = sel? legalDestsFor(sel):[];
+  const destSet = new Set(dests.map(m=>m.to[0]+','+m.to[1]));
+  for(let r=0;r<9;r++){
+    const tr=document.createElement('tr');
+    for(let c=0;c<9;c++){
+      const td=document.createElement('td');
+      const p=board[r][c];
+      if(p){ const sp=document.createElement('span');
+        sp.className='pc'+(p.o===1?' g':'')+(p.pr?' promo':'');
+        sp.textContent=pieceName(p); td.appendChild(sp); }
+      if(sel&&sel.kind==='board'&&sel.r===r&&sel.c===c) td.classList.add('sel');
+      if(destSet.has(r+','+c)){ td.classList.add('dest'); if(p) td.classList.add('destcap'); }
+      if(lastMove&&lastMove[0]===r&&lastMove[1]===c) td.classList.add('lastmv');
+      td.onclick=()=>onCell(r,c);
+      tr.appendChild(td);
+    }
+    tb.appendChild(tr);
+  }
+  renderHands();
+}
+
+function renderHands(){
+  const sh=document.getElementById('senteHandPieces'); sh.innerHTML='';
+  if(state){
+    for(const t of HAND_ORDER){ const n=state.hands[0][t]; if(!n)continue;
+      const d=document.createElement('div'); d.className='hp'+(sel&&sel.kind==='drop'&&sel.t===t?' sel':'');
+      d.innerHTML=NAME[t]+'<span class="cnt">×'+n+'</span>';
+      d.onclick=()=>{ if(solved)return; sel={kind:'drop',t}; render(); };
+      sh.appendChild(d);
+    }
+  }
+  if(!sh.children.length){ sh.innerHTML='<span class="gotehand-note">なし</span>'; }
+  // 受け方（後手）持駒（表示のみ）
+  const gh=document.getElementById('goteHandPieces'); gh.innerHTML='';
+  if(state){
+    for(const t of HAND_ORDER){ const n=state.hands[1][t]; if(!n)continue;
+      const d=document.createElement('div'); d.className='hp'; d.style.cursor='default';
+      d.innerHTML=NAME[t]+'<span class="cnt">×'+n+'</span>';
+      gh.appendChild(d);
+    }
+  }
+  if(!gh.children.length){ gh.innerHTML='<span class="gotehand-note">なし</span>'; }
+}
+
+function nameForMove(m){
+  if(m.drop) return NAME[m.drop];
+  const p=state.board[m.from[0]][m.from[1]];
+  return pieceName(p);
+}
+
+function onCell(r,c){
+  if(!state||solved) return;
+  const p=state.board[r][c];
+  // 着手先として有効か
+  if(sel){
+    const dests=legalDestsFor(sel);
+    const cand=dests.filter(m=>m.to[0]===r&&m.to[1]===c);
+    if(cand.length){
+      if(cand.length>1){ // 成/不成の選択
+        askPromotion(yes=>{ const m=cand.find(x=>!!x.promote===yes)||cand[0]; doAttackerMove(m); });
+        return;
+      }
+      doAttackerMove(cand[0]); return;
+    }
+  }
+  // 新規選択(攻方の駒のみ)
+  if(p&&p.o===0){ sel={kind:'board',r,c}; render(); }
+  else { sel=null; render(); }
+}
+
+let promoCb=null;
+function askPromotion(cb){ promoCb=cb; document.getElementById('promodlg').style.display='flex'; }
+document.getElementById('promoYes').onclick=()=>{ document.getElementById('promodlg').style.display='none'; if(promoCb)promoCb(true); };
+document.getElementById('promoNo').onclick=()=>{ document.getElementById('promodlg').style.display='none'; if(promoCb)promoCb(false); };
+
+function doAttackerMove(m){
+  const nm = nameForMove(m);
+  const winning = E.isWinningMove(state,m,0,pliesLeft);
+  if(!winning){
+    sel=null;
+    setStatus('<span class="move">'+ '▲'+sqStr(m.to[0],m.to[1])+nm+(m.promote?'成':'')+(m.drop?'打':'') +'</span><br>その手では詰みません。別の手を考えましょう。','bad');
+    render();
+    return;
+  }
+  // 着手実行
+  const after=E.applyMove(state,m,0);
+  lastMove=[m.to[0],m.to[1]];
+  addLog('▲'+sqStr(m.to[0],m.to[1])+nm+(m.promote?'成':'')+(m.drop?'打':''));
+  state=after; sel=null;
+  // 詰みか?
+  if(E.legalMoves(state,1).length===0){
+    solved=true; render();
+    setStatus('🎉 詰み！正解です。','good');
+    return;
+  }
+  // 受け方の応手
+  const d=E.chooseDefense(null,state,0,pliesLeft);
+  const dn = d.drop?NAME[d.drop]:pieceName(state.board[d.from[0]][d.from[1]]);
+  const dstr='△'+sqStr(d.to[0],d.to[1])+dn+(d.promote?'成':'')+(d.drop?'打':'');
+  state=E.applyMove(state,d,1);
+  lastMove=[d.to[0],d.to[1]];
+  addLog(dstr);
+  pliesLeft--;
+  render();
+  const remMoves = pliesLeft*2-1;   // 残り総手数（攻方+受方）
+  setStatus('正解！　受け方は <span class="move">'+dstr+'</span>。<br>続けて詰ましてください（残り'+remMoves+'手）。','good');
+}
+
+function loadProblem(prob){
+  initial = JSON.parse(JSON.stringify(prob));
+  state = JSON.parse(JSON.stringify(prob));
+  curN = prob.n || 3;
+  pliesLeft=(curN+1)/2; solved=false; sel=null; lastMove=null;
+  clearLog();
+  render();
+  setStatus('先手番です。'+curN+'手で詰ましてください。<br>攻め方の駒をクリック→着手先をクリック。','');
+  document.getElementById('meta').textContent='受け方は王手を最善で受けます。打ち歩詰めは反則です。';
+}
+
+function loadNext(){
+  if(queue.length){ loadProblem(queue.shift()); refillQueue(); }
+  else { setStatus('問題を生成中…　少々お待ちください。',''); refillQueue(); }
+}
+
+function resetProblem(){ if(!initial)return; state=JSON.parse(JSON.stringify(initial)); pliesLeft=(curN+1)/2; solved=false; sel=null; lastMove=null; clearLog(); render(); setStatus('やり直しました。先手番です。'+curN+'手詰めです。',''); }
+
+function showAnswer(){
+  if(!initial)return;
+  const base=JSON.parse(JSON.stringify(initial));
+  const pv=E.principalVariation(base,0,(curN+1)/2);
+  // 盤を初期に戻して符号を表示
+  state=JSON.parse(JSON.stringify(initial)); pliesLeft=(curN+1)/2; solved=true; sel=null; clearLog(); render();
+  let parts=[]; let cur=JSON.parse(JSON.stringify(initial));
+  for(const step of pv){
+    const m=step.move; const o=step.side;
+    let nm;
+    if(m.drop) nm=NAME[m.drop]; else { const p=cur.board[m.from[0]][m.from[1]]; nm=p.pr?(PNAME[p.t]||NAME[p.t]):NAME[p.t]; }
+    const mk=o===0?'▲':'△';
+    const str=mk+sqStr(m.to[0],m.to[1])+nm+(m.promote?'成':'')+(m.drop?'打':'');
+    addLog(str); parts.push(str);
+    cur=E.applyMove(cur,m,o);
+  }
+  state=cur; lastMove=pv.length?[pv[pv.length-1].move.to[0],pv[pv.length-1].move.to[1]]:null;
+  render();
+  setStatus('正解手順：<br><span class="move">'+parts.join('　')+'</span>','');
+}
+
+function showHint(){
+  if(!initial||solved)return;
+  const cur=JSON.parse(JSON.stringify(initial));
+  // 初期局面から見た初手のヒント(現局面が初手前のときのみ)
+  let mv=null;
+  for(const m of E.legalMoves(state,0)){ if(E.isWinningMove(state,m,0,pliesLeft)){mv=m;break;} }
+  if(!mv){ setStatus('ヒントが出せません。','bad'); return; }
+  const nm = mv.drop?NAME[mv.drop]:pieceName(state.board[mv.from[0]][mv.from[1]]);
+  setStatus('ヒント：次の一手は <span class="move">'+sqStr(mv.to[0],mv.to[1])+'</span> へ <span class="move">'+nm+'</span>。','');
+}
+
+document.getElementById('btnNext').onclick=loadNext;
+document.getElementById('btnReset').onclick=resetProblem;
+document.getElementById('btnAnswer').onclick=showAnswer;
+document.getElementById('btnHint').onclick=showHint;
+
+buildCoords();
+buildDiffButtons();
+render();
+refillQueue();
+</script>
+</body>
+</html>
